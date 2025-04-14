@@ -283,6 +283,7 @@ int main(int argc, char **argv)
     } else {
         apsp(std::max(m, n), A, computed_dist, row_comm, col_comm);
     }
+
     double time = MPI_Wtime() - start;
     double avg_time = 0.0;
     MPI_Reduce(&time, &avg_time, 1, MPI_DOUBLE, MPI_SUM, 0, MPI_COMM_WORLD);
@@ -290,6 +291,7 @@ int main(int argc, char **argv)
         avg_time = avg_time / size;
         std::cout << "==> time_taken=" << avg_time << "s\n";
     }
+
 
     // Gather matrix from across ranks to root 0
     std::vector<std::pair<std::pair<int, int>, int>> complete_spgemm_result;
