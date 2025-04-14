@@ -6,65 +6,65 @@
 #include <cmath>
 #include <string>
 #include <sstream>
-#include <vector>
-#include <unordered_map>
-#include <mpi.h>
-#include <cmath>
-#include <algorithm>
 #include "functions.h"
+#include <mpi.h>
 
-void distribute_matrix_2d(int m, int n,
+void distribute_matrix_2d(int m, int n, 
                           std::vector<std::pair<std::pair<int, int>, int>> &full_matrix,
                           std::vector<std::pair<std::pair<int, int>, int>> &local_matrix,
                           int root, MPI_Comm comm_2d)
 {
-    int rank, size, coords_rank[2];
-    MPI_Comm_rank(comm_2d, &rank);
-    MPI_Comm_size(comm_2d, &size);
+    int myRank, numProcesses;
+    MPI_Comm_rank(comm_2d, &myRank);
+    MPI_Comm_size(comm_2d, &numProcesses);
 
-    int gridsize = std::sqrt(size);
+    // Determine grid dimensions given the number of processors (assuming a square grid)
+    int gridDim = static_cast<int>(std::sqrt(numProcesses));
+    int blockRows = m / gridDim;
+    int blockCols = n / gridDim;
 
-    int block_size_row = m / gridsize;
-    int block_size_column = n / gridsize;
+    if (myRank == root) {
+        // Create a vector of buckets corresponding to each processor in the grid.
+        std::vector<std::vector<std::pair<std::pair<int,int>, int>>> procBuckets(numProcesses);
 
-    if (rank == root)
-    {
-        // Step 1: Pre-bucket all entries by destination rank
-        std::vector<std::vector<std::pair<std::pair<int, int>, int>>> send_buckets(size);
+        // Distribute each entry in full_matrix to the appropriate bucket.
+        for (size_t idx = 0; idx < full_matrix.size(); idx++) {
+            int curRow = full_matrix[idx].first.first;
+            int curCol = full_matrix[idx].first.second;
+            
+            // Determine the processor row and column using integer division and limit to grid bounds.
+            int procRow = std::min(curRow / blockRows, gridDim - 1);
+            int procCol = std::min(curCol / blockCols, gridDim - 1);
 
-        for (const auto &elem : full_matrix) {
-            int row = elem.first.first;
-            int col = elem.first.second;
-
-            int proc_row = std::min(row / block_size_row, gridsize - 1);
-            int proc_col = std::min(col / block_size_column, gridsize - 1);
-
-            int dest_coords[2] = {proc_row, proc_col};
-            int dest_rank;
-            MPI_Cart_rank(comm_2d, dest_coords, &dest_rank);
-
-            send_buckets[dest_rank].push_back(elem);
+            int coords[2] = {procRow, procCol};
+            int targetRank = -1;
+            MPI_Cart_rank(comm_2d, coords, &targetRank);
+            
+            procBuckets[targetRank].push_back(full_matrix[idx]);
         }
 
-        // Step 2: Send each processor its block (or assign directly if it's root)
-        for (int i = 0; i < size; i++) {
-            if (i == root) {
-                local_matrix = send_buckets[i];
+        // Send data to each processor.
+        for (int proc = 0; proc < numProcesses; proc++) {
+            if (proc == root) {
+                // Directly copy the bucket for the root processor.
+                local_matrix = procBuckets[proc];
             } else {
-                int buffer_size = send_buckets[i].size();
-                MPI_Send(&buffer_size, 1, MPI_INT, i, 0, comm_2d);
-                MPI_Send(send_buckets[i].data(), buffer_size * sizeof(send_buckets[i][0]),
-                         MPI_BYTE, i, 1, comm_2d);
+                // First, send the number of items in this processor's bucket.
+                int numItems = procBuckets[proc].size();
+                MPI_Send(&numItems, 1, MPI_INT, proc, 0, comm_2d);
+                // Then send the actual bucket data.
+                MPI_Send(procBuckets[proc].data(), 
+                         numItems * sizeof(procBuckets[proc][0]), 
+                         MPI_BYTE, proc, 1, comm_2d);
             }
         }
-    }
-    else
-    {
-        // Receive block from root
-        int recv_size;
-        MPI_Recv(&recv_size, 1, MPI_INT, root, 0, comm_2d, MPI_STATUS_IGNORE);
-        local_matrix.resize(recv_size);
-        MPI_Recv(local_matrix.data(), recv_size * sizeof(local_matrix[0]),
+    } else {
+        // Non-root processors receive the block size first and then the bucket.
+        int receivedCount = 0;
+        MPI_Recv(&receivedCount, 1, MPI_INT, root, 0, comm_2d, MPI_STATUS_IGNORE);
+        local_matrix.resize(receivedCount);
+        MPI_Recv(local_matrix.data(), 
+                 receivedCount * sizeof(local_matrix[0]), 
                  MPI_BYTE, root, 1, comm_2d, MPI_STATUS_IGNORE);
     }
 }
