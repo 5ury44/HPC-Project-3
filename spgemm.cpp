@@ -6,6 +6,8 @@
 #include <mpi.h>
 #include <cassert>
 #include "functions.h"
+#include <cmath>
+
 
 void spgemm_2d(int m, int p, int n,
                std::vector<std::pair<std::pair<int,int>, int>> &A,
