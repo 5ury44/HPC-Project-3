@@ -133,5 +133,5 @@ def perf_checks():
 
 
 if __name__ == '__main__':
-    #correctness_checks()
+    correctness_checks()
     perf_checks()
