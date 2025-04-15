@@ -14,20 +14,8 @@ struct pair {
     }
 };
 
-// Serializes a vector of COO entries as bytes (not portable, but matches original design).
-void bc_coo(std::vector<std::pair<std::pair<int,int>, int>> &block, int root, MPI_Comm comm) {
-    int sz = static_cast<int>(block.size());
-    MPI_Bcast(&sz, 1, MPI_INT, root, comm);
-
-    if (static_cast<int>(block.size()) != sz) {
-        block.resize(sz);
-    }
-
-    MPI_Bcast(block.data(), sz * sizeof(block[0]), MPI_BYTE, root, comm);
-}
-
 // For each (i,k,a) in A and (k,j,b) in B, compute c = a*b and add to C(i,j) via plus.
-void local_spgemm(
+void spgemm(
     const std::vector<std::pair<std::pair<int,int>, int>> &procA,
     const std::vector<std::pair<std::pair<int,int>, int>> &procB,
     std::unordered_map<std::pair<int, int>, int, pair> &resultAccum,
@@ -70,6 +58,18 @@ void local_spgemm(
     }
 }
 
+// Serializes a vector of COO entries as bytes (not portable, but matches original design).
+void bc_coo(std::vector<std::pair<std::pair<int,int>, int>> &block, int root, MPI_Comm comm) {
+    int sz = static_cast<int>(block.size());
+    MPI_Bcast(&sz, 1, MPI_INT, root, comm);
+
+    if (static_cast<int>(block.size()) != sz) {
+        block.resize(sz);
+    }
+
+    MPI_Bcast(block.data(), sz * sizeof(block[0]), MPI_BYTE, root, comm);
+}
+
 void spgemm_2d(int m, int p, int n,
                std::vector<std::pair<std::pair<int,int>, int>> &A,
                std::vector<std::pair<std::pair<int,int>, int>> &B,
@@ -104,7 +104,7 @@ void spgemm_2d(int m, int p, int n,
         bc_coo(procB, step, col_comm);
 
         // --- Multiply the broadcast pieces and accumulate results ---
-        local_spgemm(procA, procB, resultAccum, plus, times);
+        spgemm(procA, procB, resultAccum, plus, times);
     }
 
     // Convert the accumulated result into the output COO vector.
