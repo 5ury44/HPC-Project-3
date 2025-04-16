@@ -226,8 +226,7 @@
 using MatrixEntry = std::pair<std::pair<int, int>, int>;
 using SparseMatrix = std::vector<MatrixEntry>;
 
-// Helper to broadcast a sparse matrix
-void broadcast_matrix(SparseMatrix &matrix, int root, MPI_Comm comm) {
+void broad(SparseMatrix &matrix, int root, MPI_Comm comm) {
     int rank;
     MPI_Comm_rank(comm, &rank);
 
@@ -240,20 +239,7 @@ void broadcast_matrix(SparseMatrix &matrix, int root, MPI_Comm comm) {
     MPI_Bcast(matrix.data(), count * sizeof(MatrixEntry), MPI_BYTE, root, comm);
 }
 
-// Hash B matrix rows by key to accelerate matching
-std::unordered_map<int, std::vector<std::pair<int, int>>> hash_matrix_by_row(const SparseMatrix &B) {
-    std::unordered_map<int, std::vector<std::pair<int, int>>> hash;
-    for (const auto &entry : B) {
-        int row = entry.first.first;
-        int col = entry.first.second;
-        int val = entry.second;
-        hash[row].emplace_back(col, val);
-    }
-    return hash;
-}
-
-// Perform local multiplication between A and hashed B
-void local_spgemm(const SparseMatrix &A,
+void spgemm(const SparseMatrix &A,
                   const std::unordered_map<int, std::vector<std::pair<int, int>>> &B_hash,
                   std::map<std::pair<int, int>, int> &local_C,
                   std::function<int(int, int)> plus,
@@ -278,7 +264,17 @@ void local_spgemm(const SparseMatrix &A,
     }
 }
 
-// Main 2D SpGEMM driver
+std::unordered_map<int, std::vector<std::pair<int, int>>> hash(const SparseMatrix &B) {
+    std::unordered_map<int, std::vector<std::pair<int, int>>> hash;
+    for (const auto &entry : B) {
+        int row = entry.first.first;
+        int col = entry.first.second;
+        int val = entry.second;
+        hash[row].emplace_back(col, val);
+    }
+    return hash;
+}
+
 void spgemm_2d(int m, int p, int n,
                SparseMatrix &A,
                SparseMatrix &B,
@@ -299,13 +295,13 @@ void spgemm_2d(int m, int p, int n,
         SparseMatrix A_i, B_i;
 
         if (row_rank == k) A_i = A;
-        broadcast_matrix(A_i, k, row_comm);
+        broad(A_i, k, row_comm);
 
         if (col_rank == k) B_i = B;
-        broadcast_matrix(B_i, k, col_comm);
+        broad(B_i, k, col_comm);
 
-        auto B_hash = hash_matrix_by_row(B_i);
-        local_spgemm(A_i, B_hash, local_C, plus, times);
+        auto B_hash = hash(B_i);
+        spgemm(A_i, B_hash, local_C, plus, times);
     }
 
     C.clear();
